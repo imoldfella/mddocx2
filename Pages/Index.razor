@@ -14,62 +14,40 @@ Select your Docx file. File is processed locally and remains private.
 
 <p> @status</p>
 <p> @text </p>
-<button @onclick="DownloadFileFromStream">
-    Download File From Stream
-</button>
 
 @code {
     private string[] files = new string[] { "none selected" };
     private string status = "";
 
     private string text = "";
-    private Stream GetFileStream()
-    {
 
-        string md = @"# markdown
-
-- is cool?
-- is cheap!
-";
-
-        var fileStream = new MemoryStream(Encoding.UTF8.GetBytes(md ?? string.Empty));
-
-        return fileStream;
-    }
-
-    private async Task DownloadFileFromStream()
-    {
-        var fileStream = GetFileStream();
-        var fileName = "sample.md";
-
-        using var streamRef = new DotNetStreamReference(stream: fileStream);
-
-        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
-    }
     private async Task LoadFiles(InputFileChangeEventArgs e)
     {
         status += "\nChanged";
         try
         {
             var buffer = new byte[4096];
-            foreach (var file in e.GetMultipleFiles(e.FileCount))
+            foreach (IBrowserFile file in e.GetMultipleFiles(e.FileCount))
             {
                 status += "\nReading file: " + file.Name;
                 _ = InvokeAsync(StateHasChanged);
 
-                using var stream = file.OpenReadStream(maxAllowedSize: long.MaxValue);
-                @* while (true)
-                    {
-                    var read = await stream.ReadAsync(buffer);
-                    if (read == 0)
-                    break;
-                    } *@
+                var fileStream = new MemoryStream();
+                await file.OpenReadStream(maxAllowedSize: long.MaxValue).CopyToAsync(fileStream);
 
-                WordprocessingDocument wordDoc = WordprocessingDocument.Open(stream, false);
+                WordprocessingDocument wordDoc = WordprocessingDocument.Open(fileStream, false);
                 DocumentFormat.OpenXml.Wordprocessing.Body body
                 = wordDoc.MainDocumentPart.Document.Body;
+
+                // so here we need to do something clever with the body and turn it into 
+                // markdown. We probably need to return a zip file with images and such.
+
                 var totaltext = body.InnerText;
                 text += totaltext;
+
+                var mdStream = new MemoryStream(Encoding.UTF8.GetBytes(text ?? string.Empty));
+                using var streamRef = new DotNetStreamReference(stream: mdStream);
+                await JS.InvokeVoidAsync("downloadFileFromStream", file.Name + ".md", streamRef);
             }
             status = "done";
         }
@@ -79,8 +57,5 @@ Select your Docx file. File is processed locally and remains private.
             _ = InvokeAsync(StateHasChanged);
         }
         var memoryStream = new MemoryStream();
-        @* browserFile.OpenReadStream().CopyToAsync(memoryStream);
-            await blobContainerClient.UploadBlobAsync(
-            trustedFilename, memoryStream)); *@
     }
 }
